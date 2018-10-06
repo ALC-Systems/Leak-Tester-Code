@@ -1,0 +1,76 @@
+// Button for shutting off blinking LED
+// LED blinks at 2hz. Push button to shut off LED for 2 seconds
+// This is an experiment for the blinking fail LED feature for the fleetpulse leak test fixture in the event of the newly 
+// acquired calibration values are out of tolerance when compared to the initial calibration values
+// The current version checks the button status every 100 ms and has a 25 ms debounce
+
+int Button = 8;
+int LED = 9;
+int counter = 0;
+int Step = 0;
+int Brightness = 1;
+int onoff = 1;
+void setup()
+{
+  Serial.begin(9600);
+  pinMode(Button, INPUT);
+  pinMode(LED, OUTPUT);
+  Serial.println("Ready");
+}
+
+void loop()
+{
+  while (Step == 0) {
+    if (digitalRead(Button) == HIGH) {
+      delay(25);
+      if (digitalRead(Button) == HIGH) {
+        Step = 1;
+        Serial.println("Button HIGH");
+        delay(100);
+      }
+    }
+    else {
+      if (Brightness == 1) {
+        Serial.print("LED ON, Brightness  ");
+        Serial.println(Brightness);
+        Serial.print("Counter is   ");
+        Serial.println(counter);
+        digitalWrite(LED, HIGH);
+        delay(100);
+        ++ counter;
+        if (counter == 5) {
+          Brightness = 0;
+          counter = 0;
+          Serial.println("Turning LED Off");
+          Serial.print("Brightness is now   ");
+          Serial.println(Brightness);
+          Serial.println(" ");
+        }
+      }
+
+      else if (Brightness == 0) {
+        Serial.print("LED OFF, Brightness  ");
+        Serial.println(Brightness);
+        Serial.print("Counter is   ");
+        Serial.println(counter);
+        digitalWrite(LED, LOW);
+        delay(100);
+        ++ counter;
+        if (counter == 5) {
+
+          Serial.println("Turning LED ON");
+          Brightness = 1;
+          counter = 0;
+        }
+      }
+    }
+  }
+
+  while (Step == 1) {
+    digitalWrite(LED, LOW);
+    Serial.println("LED OFF");
+    delay(4000);
+    Step = 0;
+  }
+}
+
