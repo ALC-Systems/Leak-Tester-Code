@@ -1,0 +1,668 @@
+/*
+  Properties:
+
+    Project: Great Dane Leak Test Jig
+    Script: SD Card Activation/Restoration
+    Author: Alex Liu
+    Date: 8/22/2018
+    Program is compatible with: Arduino MEGA 2560
+
+
+  Description:
+
+    Detects leak within the Fleetpulse faceplate by evaluating pressure drop inside the part
+    after compressed air is fed into the cavity between the part and the fixture.
+
+    A set of auxillary programs for calibrating the unit and resetting the program are provided and can be found at: *** insert link ***
+
+
+  Auxillary Scripts:
+
+    Manual_Write_SD_Card: This script resets the HIGH, LOW, CalNum (number of calibrations performed) and the test log.
+    RTC_Calibration: This script is for manually setting the time on the RTC.
+    Read_SD_Card: This script reads the SD card and outputs the contents on the SD card to the serial monitor.
+
+*/
+
+// For the SD Card
+// ****** Note: for the Arduino Mega, SlaveSelect = 53, Clock = 52, MOSI = 51, MISO = 50 ****
+#include <SPI.h>
+#include <SD.h>
+File myFile;
+
+// For the RTC
+// **** Note: for I2C with the the Arduino Mega, use digital pin 20 for Data and digital pin 21 for Clock ****
+#include <Wire.h>
+#include "RTClib.h"
+RTC_DS1307 RTC;
+
+
+////////////////// name pins ////////////////
+
+int SensorRead = A0;
+
+///// LEDs /////
+
+int PassLED = 30;
+int FailLED = 31;
+int PressureLED = 32;
+int DetectingLED = 33;
+int ReadyLED = 34;
+
+///// Relays /////
+
+int Valve1Relay = 2;                                   // First Valve
+int Valve2Relay = 3;                                   // Second (exhaust) valve
+
+///// Buttons /////
+
+int CalibrationInput = 5;
+int StartTest = 6;
+int Restart = 7;
+
+///// Switch /////
+int Switch = 0;
+int Step = 0;
+int Verdict = 0;                                          // 1 = pass, 0 = no pass
+
+//////// Placeholder for misc var ////////
+
+int PrerssureTime = 5;                                     // in seconds
+int DataPoint = 100;                                       // number of readings taken for high/low pressure
+int HighPressure;
+int LowPressure;
+int MaxDiff;
+int Diff;
+int counter;
+int sum;
+
+long OldHigh;
+long OldLow;
+long HighVal;
+long LowVal;
+long CalNum;
+
+int CalHighDiff;                                           // Difference between HIGH from current calibration and initial calibration
+int CalLowDiff;                                            // Difference between LOW from current calibration and initial calibration
+double HighAverage;
+double LowAverage;
+
+int SlaveSelect = 53;                                       // SS is pin D53 for MEGA 2560
+
+void setup() {
+  Serial.begin(9600);                                       // Open serial communications and wait for port to open:
+  Wire.begin();
+  RTC.begin();
+  SPI.begin();
+
+  if (! RTC.isrunning()) {
+    Serial.println("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    RTC.adjust(DateTime(__DATE__, __TIME__));
+  }
+
+  // Output pins
+
+  pinMode(SlaveSelect, OUTPUT);                             // As per the ECE god, Dr. Matthew Shuman, master of electrons and holes and weiner dogs
+  pinMode(Valve1Relay, OUTPUT);
+  pinMode(Valve2Relay, OUTPUT);
+
+  pinMode(PassLED, OUTPUT);
+  pinMode(FailLED, OUTPUT);
+  pinMode(PressureLED, OUTPUT);
+  pinMode(DetectingLED, OUTPUT);
+  pinMode(ReadyLED, OUTPUT);
+
+  // Input pins
+
+  pinMode(CalibrationInput, INPUT);
+  pinMode(StartTest, INPUT);
+  pinMode(Restart, INPUT);
+
+  Serial.println("Great Dane Fleetpulse Faceplate Leak Test V 1.0");
+  Serial.println("Start Operation");
+  ////////////////// SD Card /////////////////
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+  Serial.println("Initializing SD card...");
+
+  if (!SD.begin(53)) {
+    Serial.println("initialization failed!");
+    while (1);
+  }
+  Serial.println("initialization done.");                      // initialize SD Card
+  Serial.println("  ");
+  /////////////// Check file ///////////////
+  ////// HIGH //////
+  Serial.println("Reading HighVal.txt...");
+  myFile = SD.open("HighVal.txt");                             // Check HighVal.txt
+  if (myFile) {
+    Serial.println("Contents of HighVal.txt:");
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+    }
+
+    myFile.close();
+  }
+  else {
+    Serial.println("error opening HighVal.txt");
+  }
+  Serial.println("  ");
+
+  ////// LOW //////
+  Serial.println("Reading LowVal file");                     // Check LowVal.txt
+
+  myFile = SD.open("LowVal.txt");
+  if (myFile) {
+    Serial.println("Contents of LowVal.txt:");
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+    }
+    myFile.close();
+  }
+  else {
+    Serial.println("error opening LowVal.txt");
+  }
+  Serial.println("  ");
+
+  /////////////// Calibration Number /////////////////
+
+  Serial.println("Reading CalNum.txt...");
+  myFile = SD.open("CalNum.txt");                              // Check CalNum.txt
+  if (myFile) {
+    Serial.println("Contents of CalNum.txt:");
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+    }
+
+    myFile.close();
+  }
+  else {
+    Serial.println("error opening CalNum.txt");
+  }
+  Serial.println("  ");
+
+  /////////////// Old High /////////////////
+
+  Serial.println("Reading OldHigh.txt...");
+  myFile = SD.open("OldHigh.txt");                              // Check OldHigh - HIGH Value from initial calibration
+  if (myFile) {
+    Serial.println("Contents of OldHigh.txt:");
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+    }
+
+    myFile.close();
+  }
+  else {
+    Serial.println("error opening OldHigh.txt");
+  }
+  Serial.println("  ");
+
+  /////////////// Old Low /////////////////
+
+  Serial.println("Reading OldLow.txt...");
+  myFile = SD.open("OldLow.txt");                                // Check OldLow - LOW Value from initial calibration
+  if (myFile) {
+    Serial.println("Contents of OldLow.txt:");
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+    }
+
+    myFile.close();
+  }
+  else {
+    Serial.println("error opening OldLow.txt");
+  }
+  Serial.println("  ");
+
+
+  ////////// Reading Complete ///////////
+
+  Serial.println("  ");
+
+  Serial.println("Now Parse Variables...");
+
+  /////////////// Parse ///////////                              // Checking complete, now parse intergers
+
+  myFile = SD.open("HighVal.txt");
+
+  Serial.println("Parsing HighVal...");
+
+  HighVal = myFile.parseInt();                               // Parse HighVal
+  Serial.print("HIGH value parsed, HighVal is: ");
+  Serial.println(HighVal);
+  myFile.close();
+  delay (10);
+  Serial.println("  ");
+
+  ///////////////////// Parse LowVal ////////////////////////
+
+  myFile = SD.open("LowVal.txt");
+
+  Serial.println("Parsing LowVal...");
+
+  LowVal = myFile.parseInt();                                // Parse LowVal
+  Serial.print("LOW value parsed, LowVal is: ");
+  Serial.println(LowVal);
+  myFile.close();
+  Serial.println("  ");
+
+  delay (10);
+
+  //////////////////////////Parse CalNum /////////////
+
+  myFile = SD.open("CalNum.txt");
+
+  Serial.println("Parsing CalNum...");
+
+  CalNum = myFile.parseInt();                                  // Parse CalNum
+  Serial.print("Calibration Number parsed, CalNum is: ");
+  Serial.println(CalNum);
+  myFile.close();
+  delay (10);
+  Serial.println("  ");
+
+  //////////////////////////Parse Old High /////////////
+
+  myFile = SD.open("OldHigh.txt");
+
+  Serial.println("Parsing OldHigh...");
+
+  OldHigh = myFile.parseInt();                                  // Parse OldHigh
+  Serial.print("OldHigh parsed, OldHigh is: ");
+  Serial.println(OldHigh);
+  myFile.close();
+  delay (10);
+  Serial.println("  ");
+
+  //////////////////////////Parse OldLow /////////////
+
+  myFile = SD.open("OldLow.txt");
+
+  Serial.println("Parsing OldLow...");
+
+  OldLow = myFile.parseInt();                                  // Parse OldLow
+  Serial.print("OldLow parsed, OldLow is: ");
+  Serial.println(OldLow);
+  myFile.close();
+  delay (10);
+  Serial.println("  ");
+
+  ///////////// Parsing Complete ////////////                      // Parsing Complete
+
+  ////////////////// Calculate Diff /////////////
+
+  MaxDiff = HighVal - LowVal;                                      // Calculating MaxDiff
+  if (MaxDiff >= 0) {
+    Serial.print("Current MaxDiff is: ");
+    Serial.println(MaxDiff);
+    Serial.println("  ");
+  }
+
+  else if (MaxDiff < 0) {
+    Serial.println("MaxDiff is less than zero!");
+  }
+}                                                               // Setup complete
+
+
+///////////////////////// Repeated Operation Loop ////////////////////////
+
+
+void loop() {
+
+  if (Step == 0) {
+    Serial.println(" ");
+    Serial.println(" ");
+    Serial.println("Ready");
+    Serial.println("MaxDiff is Set at");
+    Serial.println(MaxDiff);
+    Serial.println("STEP 0");
+    Serial.print("Switch is");
+    Serial.println(Switch);
+    Serial.println(" ");
+
+    Serial.println(" ");
+    Serial.println ("Previous High Average:");
+    Serial.println(HighAverage);
+    Serial.println(" ");
+    Serial.println ("Previous Low Average:");
+    Serial.println(LowAverage);
+    Serial.println(" ");
+
+
+    delay(1000);
+  }
+
+  // Start Test Button
+  digitalWrite (PassLED, LOW);
+  digitalWrite (FailLED, LOW);
+  digitalWrite (ReadyLED, LOW);
+  digitalWrite (PressureLED, LOW);
+
+  while (Step == 0) {
+
+    if ((digitalRead(StartTest) == HIGH)) {                        // Test Start
+      Switch = 1;
+      Step = 1;
+      Serial.println("Test Start");
+      delay(100);
+      digitalWrite(ReadyLED, LOW);
+
+    }
+    // Calibration Button
+    else if ((digitalRead(CalibrationInput) == HIGH)) {             // Calibration Start
+      Switch = 2;
+      Step = 1;
+      Serial.println("Calibration Start");
+      delay(100);
+      digitalWrite(ReadyLED, LOW);
+      Serial.println("Removing Old Files...");
+
+      SD.remove("HighVal.txt");
+      SD.remove("LowVal.txt");                                        // Remove old values
+      SD.remove("ValNum.txt");
+
+      Serial.println("Old Files Removed");
+
+    }
+    // Cricket Button
+    else {
+      digitalWrite (ReadyLED, HIGH);
+      Step = 0;
+      delay(100);
+    }
+  }
+
+
+  // Pressurizing Sequence
+  // Step 1, 2 of Test and Calib are the same
+
+  // Step 1, Pressurize
+  while (Step == 1) {
+    Serial.println("Switch is:");
+    Serial.println(Switch);
+    Serial.println(" ");
+    Serial.println("STEP 1");
+
+    delay(100);
+
+    digitalWrite(ReadyLED, LOW);
+    digitalWrite(PressureLED, HIGH);
+    digitalWrite (Valve1Relay, LOW);                    // Valve 1 open, pressurize
+    Serial.println("Pressurizing");
+    delay(100);
+    //  delay (PressureTime * 1000);                     // keep air on for this long
+    delay(5000);                                         // only TEMPORARY, keep air on for 5 sec
+    digitalWrite (Valve1Relay, HIGH);                    // Valve 1 off, both valves are now off
+    digitalWrite(PressureLED, LOW);
+    Serial.println("Pressurization Complete");
+    Serial.println(" ");
+    delay(100);
+
+    Step = 2;
+  }
+
+  // Step 2, Record pressures
+
+  while (Step == 2) {
+    Serial.println("STEP 2");
+    delay(100);
+
+    digitalWrite(DetectingLED, HIGH);
+
+    Serial.println("High Pressure Measure");
+
+    delay (1000);                                       // however long you might wanna wait for the pressure to settle before measuring high
+
+    while (counter < DataPoint) {                       // Acquire analog read data / record pressure readings
+      HighPressure = analogRead(SensorRead);            // Read high pressure
+      //  Serial.println ("Entry #:");
+      //  Serial.println(counter);
+      //  Serial.println("Value:");
+      // Serial.println(HighPressure);
+      delay (10);
+      counter++;
+      sum = sum + HighPressure;
+    }
+
+    delay (100);
+
+    HighAverage = sum / DataPoint;
+    Serial.println ("High Average is:");
+    Serial.println (HighAverage);
+
+    counter = 0;                                      // Reset counter for low pressure
+    sum = 0;
+
+    // *************** Low Pressure ****************
+    delay (5000);                                     // however long you might wanna wait for the pressure to settle before measuring high
+
+    Serial.println(" ");
+    Serial.println("Low Pressure Measure");
+    delay (100);
+
+    while (counter < DataPoint) {
+      LowPressure = analogRead(SensorRead);            // Read low pressure
+      //  Serial.println ("Entry #:");
+      //  Serial.println(counter);
+      //  Serial.println("Value:");
+      //  Serial.println(LowPressure);
+      delay (10);
+      counter = ++counter;
+      sum = sum + LowPressure;
+    }
+
+    counter = 0;
+    LowAverage = sum / DataPoint;
+    Serial.println ("Low Average is:");
+    Serial.println (LowAverage);
+    sum = 0;
+
+    Serial.println(" ");
+    Serial.println("Calculating Difference");
+
+    Diff = HighAverage - LowAverage;                  // Acquire Difference
+
+    digitalWrite(DetectingLED, LOW);
+
+    Serial.println("Calculation Complete, Diff is:");
+    Serial.println(Diff);
+    Serial.println(" ");
+
+
+    if (Switch == 2) {
+      Step = 3;
+    }
+    else if (Switch == 1) {
+      Step = 4;
+    }
+
+  }
+
+  //// Step 3, for calibration; regular testing goes to step 4 (output verdict) & 5 (await resetting) ////
+
+  while (Step == 3) {
+    Serial.println("STEP 3");
+    delay(100);
+
+    ////////// Record calibration time ////////////
+    CalNum ++;                                           // Current Calib Number
+    Serial.print("Calibration Number ");
+    Serial.println(CalNum);
+
+    //// Update CalNum
+    Serial.println("Updating Calibration Number...");
+    myFile = SD.open("CalNum.txt", FILE_WRITE);
+    myFile.println(CalNum);
+    myFile.close();
+    Serial.println("Calibration Number Updated");
+    Serial.println(" ");
+
+    ////// Get Time of Calibration //////
+    Serial.println("Time of Calibration:");
+
+    //  RTC Start
+    DateTime now = RTC.now();
+    Serial.print(now.year(), DEC);
+    Serial.print('/');
+    Serial.print(now.month(), DEC);
+    Serial.print('/');
+    Serial.print(now.day(), DEC);
+    Serial.print(' ');
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    Serial.print(now.minute(), DEC);
+    Serial.print(':');
+    Serial.print(now.second(), DEC);
+    Serial.println();
+    delay(100);
+
+    // RTC Finish
+    // Write to calibration log
+    Serial.println("Updating Calibration Log...");                     // Update calibration log
+    myFile = SD.open("CalLog.txt", FILE_WRITE);
+    myFile.print("Calibration #");
+    myFile.print(CalNum);
+    myFile.print("; ");
+    myFile.print("Performed at " );
+    myFile.print(now.year(), DEC);
+    myFile.print('/');
+    myFile.print(now.month(), DEC);
+    myFile.print('/');
+    myFile.print(now.day(), DEC);
+    myFile.print(' ');
+    myFile.print(now.hour(), DEC);
+    myFile.print(':');
+    myFile.print(now.minute(), DEC);
+    myFile.print(':');
+    myFile.print(now.second(), DEC);
+    myFile.println(" ");
+    myFile.print("High Value Recorded:");
+    myFile.print("HighAverage");
+    myFile.println(" ");
+    myFile.println(" ");
+    myFile.print("Low Value Recorded:");
+    myFile.print("LowAverage");
+    myFile.println(" ");
+    myFile.println(" ");
+
+    myFile.close();
+
+    Serial.println("Calibration Log Updated");
+
+    // Write complete
+    ////// Write High Value to SD Card ///////         // Write HIGH value to SD card
+
+    myFile = SD.open("HighVal.txt", FILE_WRITE);
+    myFile.println(HighAverage);
+    myFile.close();
+
+    ////// Write Low Value to SD Card ///////         // Write LOW value to SD card
+    myFile = SD.open("LowVal.txt", FILE_WRITE);
+    myFile.println(LowAverage);
+    myFile.close();
+
+    ////////// Check difference between current and initial calibration /////////
+
+    // CalHighDiff = abs(OldHigh - HighAverage);                                 // Difference between new and old HIGH value
+
+    // CalLowDiff = abs(LowAverage - OldLow);                                    // Difference between new and old LOW value
+
+    if (CalHighDiff > (0.1 * OldHigh)) {                                     // ***** set at 10% now ****
+      Serial.println("HIGH value has changed significantly, check pressure regulators");
+    }
+    else if (CalLowDiff > (0.1 * OldLow)) {                                 // ***** set at 10% now ****
+      Serial.println("LOW value has changed significantly, check pressure regulators");
+    }
+    else {
+      delay(100);
+    }
+
+    /////////// check complete /////////
+    Serial.println("Calibration Complete");
+    Serial.println("New Max Difference Is:");
+    Serial.println(MaxDiff);
+    Serial.println(" ");
+    delay(100);
+    digitalWrite (Valve2Relay, HIGH);               // Turn relay off to release pressure
+    Serial.println("Releasing Pressure");
+    delay(1000);                                    // however long it takes to release the pressure
+    Step = 0;
+  }
+
+
+  // Step 4
+  if (Switch == 1) {
+    while (Step == 4) {
+      Serial.println("STEP 4");
+      if (Diff <= MaxDiff) {
+        Verdict = 1;
+        Serial.println("Unit Passed Test");
+        Serial.println(" ");
+        digitalWrite(PassLED, HIGH);
+        delay (100);
+        digitalWrite (Valve2Relay, HIGH);
+        Serial.println("Releasing Pressure");
+        delay(1000);                                   // however long it takes to release the pressure
+        Step = 5;
+      }
+
+      else if (Diff > MaxDiff) {
+        Verdict = 0;
+        Serial.println("Unit Did Not Pass");
+        Serial.println(" ");
+        digitalWrite(FailLED, HIGH);
+        delay (100);
+        digitalWrite (Valve2Relay, HIGH);
+        Serial.println("Releasing Pressure");
+        delay(1000);                                   // however long it takes to release the pressure
+        Step = 5;
+      }
+    }
+  }
+  else {
+    Step = 5;
+  }
+
+
+  // Step 5
+
+  Serial.println("Step 5");
+
+  // Check the reset button
+  if (digitalRead(Restart) == HIGH) {
+    Serial.println("Restart High");
+  }
+
+  // Start Step 5
+
+  if (Switch == 1) {
+
+    // Await resetting, output verdict
+    while (Step == 5) {
+      if (digitalRead(Restart) == HIGH) {
+        Switch = 0;
+        Step = 0;
+        counter = 0;
+        Serial.println("Program Reset");
+        Serial.println(Switch);
+        delay(100);
+      }
+      else {
+        //    Serial.println("Waiting for Input");
+        delay(100);
+        Step = 5;
+      }
+    }
+  }
+  else {
+    Step = 0;
+  }
+}
+
+
+
+
+
