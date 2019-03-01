@@ -1,0 +1,157 @@
+/*
+   This is a simplified version of the 395-0121-000 program. This version
+   does not record calibration date and time. It simply records the data
+   recorded during calibration and uses those values as reference points
+   during testing.
+
+   The values acquired during calibration are stored in eeprom.
+
+   Keep in mind you can only mess with EEPROM less than 10^5 times.
+*/
+
+#include <EEPROM.h>
+
+// global variables
+
+///////// EEPROM address(es)
+int calibaddr = 0;  // calibration value will be stored at address 0
+
+//////// GPIO pin designation
+
+int SensorRead = A0;        // analog 0 for reading pressure sensor
+
+// LEDs
+int PassLED = 30;
+int FailLED = 31;
+int PressureLED = 32;
+int ReadyLED = 34;
+
+// relays
+int Valve1 = 2;         // Inlet Valve
+int Valve2 = 3;         // Exhaust valve
+
+// buttons
+int StartCalibration = 5;   // all buttons pulled DOWN
+int StartTest = 6;
+int Restart = 7;
+
+// time constants
+int Exhausttime = 5000;     // keep exhaust valve open for this long to exhaust unit
+int Pressuretime = 5000;    // keep inlet valve open for this long for pressurizing unit
+int Droptime = 3000;        // interval between calibration initial and final readings
+
+
+void setup() {
+  // put your setup code here, to run once:
+
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
+}
+
+
+/////////////////////////////////////////   Misc Functions   //////////////////////////////////////////
+
+/////// 1. Function for releaseing air
+void exhaust(){
+  // To release air through exhaust, close valve one and open valve two; 
+  // Allow for 5 seconds for complete exhaustion
+  
+  digitalWrite(Valve1, HIGH);      // 1. Close valve 1
+  delay(500);                      // 2. Allow valve 1 to close completely
+  digitalWrite(Valve2, LOW);       // 3. Open valve 2
+  delay(Exhausttime);              // 4. Wait specified time interval
+  digitalWrite(Valve2, HIGH);      // 5. Close valve 2
+}
+
+/////// 2. Function for releaseing air
+void calibration(){
+  // Calibration sequence: 
+     
+  pressurize();                       // 1. Pressurize unit. (use the 'pressurize' function)
+  Initial = analogRead(0);            // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
+  delay(Droptime);                    // 3. Wait specified time period
+  Final = analogRead(0);              // 4. Take secondary reading 
+  Maxdrop = Initial - Final;          // 5. Calculate pressure drop
+  EEPROM.write(Dropaddr, Maxdrop);    // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
+
+}
+
+/////// 3. Function for pressurizing unit
+void pressurize(){
+  // pressurizing sequence
+
+  digitalWrite(Valve2, HIGH);       // 1. Close valve 2
+  delay(500);                       // 2. Wait for valve 2 to close completely
+  digitalWrite(Valve1, LOW);        // 3. Open valve 1
+  delay(Pressuretime);              // 4. Wait specified time interval
+  digitalWrite(Valve1, HIGH);       // 5. Close valve 1
+  
+}
+
+
+///////// 4. Function for outputting a verdict
+
+void verdict(){
+  Maxdrop = EEPROM.read(Dropaddr)
+  Lastinitial = EEPROM.read(Initialaddr);
+  Lastfinal = EEPROM.read(Finaladdr);
+  Lastdrop = Lastfinal - Lastinitial;
+  // now compare the test drop with calibration drop
+  if (Lastdrop > Maxdrop){
+    Verdict = 0;                // fail test
+  }
+  else {
+    Verdict = 1;                // pass test
+  }
+}
+
+////////// 7. Function for waiting for reset
+
+void waitreset(){
+  while (Step == 0) {
+    if (digitalRead(Button) == HIGH) {
+      delay(25);
+      if (digitalRead(Button) == HIGH) {
+        Step = 1;
+        Serial.println("Button HIGH");
+        delay(100);
+      }
+    }
+    else {
+      if (Brightness == 1) {
+        digitalWrite(LED, HIGH);
+        delay(100);
+        ++ counter;
+        if (counter == 5) {
+          Brightness = 0;
+          counter = 0;
+        }
+      }
+
+      else if (Brightness == 0) {
+        digitalWrite(LED, LOW);
+        delay(100);
+        ++ counter;
+        if (counter == 5) {
+          Brightness = 1;
+          counter = 0;
+        }
+      }
+    }
+  }
+
+  while (Step == 1) {
+    digitalWrite(LED, LOW);
+    Serial.println("LED OFF");
+    delay(4000);
+    Step = 0;
+  }
+}
+
+
+
+
+
