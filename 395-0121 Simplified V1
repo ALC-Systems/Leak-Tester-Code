@@ -40,6 +40,13 @@ int Exhausttime = 5000;     // keep exhaust valve open for this long to exhaust 
 int Pressuretime = 5000;    // keep inlet valve open for this long for pressurizing unit
 int Droptime = 3000;        // interval between calibration initial and final readings
 
+// EEPROM Addresses
+
+int Dropaddr = 0;           // address for storing the calibration drop
+int Initialaddr = 1;        // address for initial pressure 
+int Finaladdr = 2;          // address for final pressure
+
+
 
 void setup() {
   // put your setup code here, to run once:
@@ -55,10 +62,10 @@ void loop() {
 /////////////////////////////////////////   Misc Functions   //////////////////////////////////////////
 
 /////// 1. Function for releaseing air
-void exhaust(){
-  // To release air through exhaust, close valve one and open valve two; 
+void exhaust() {
+  // To release air through exhaust, close valve one and open valve two;
   // Allow for 5 seconds for complete exhaustion
-  
+
   digitalWrite(Valve1, HIGH);      // 1. Close valve 1
   delay(500);                      // 2. Allow valve 1 to close completely
   digitalWrite(Valve2, LOW);       // 3. Open valve 2
@@ -67,20 +74,20 @@ void exhaust(){
 }
 
 /////// 2. Function for releaseing air
-void calibration(){
-  // Calibration sequence: 
-     
+void calibration() {
+  // Calibration sequence:
+
   pressurize();                       // 1. Pressurize unit. (use the 'pressurize' function)
   Initial = analogRead(0);            // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
   delay(Droptime);                    // 3. Wait specified time period
-  Final = analogRead(0);              // 4. Take secondary reading 
+  Final = analogRead(0);              // 4. Take secondary reading
   Maxdrop = Initial - Final;          // 5. Calculate pressure drop
   EEPROM.write(Dropaddr, Maxdrop);    // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
 
 }
 
 /////// 3. Function for pressurizing unit
-void pressurize(){
+void pressurize() {
   // pressurizing sequence
 
   digitalWrite(Valve2, HIGH);       // 1. Close valve 2
@@ -88,19 +95,19 @@ void pressurize(){
   digitalWrite(Valve1, LOW);        // 3. Open valve 1
   delay(Pressuretime);              // 4. Wait specified time interval
   digitalWrite(Valve1, HIGH);       // 5. Close valve 1
-  
+
 }
 
 
 ///////// 4. Function for outputting a verdict
 
-void verdict(){
+void verdict() {
   Maxdrop = EEPROM.read(Dropaddr)
-  Lastinitial = EEPROM.read(Initialaddr);
+            Lastinitial = EEPROM.read(Initialaddr);
   Lastfinal = EEPROM.read(Finaladdr);
   Lastdrop = Lastfinal - Lastinitial;
   // now compare the test drop with calibration drop
-  if (Lastdrop > Maxdrop){
+  if (Lastdrop > Maxdrop) {
     Verdict = 0;                // fail test
   }
   else {
@@ -110,19 +117,27 @@ void verdict(){
 
 ////////// 7. Function for waiting for reset
 
-void waitreset(){
+int waitreset() {
+
+// This function will blink the fail LED at 1Hz until the reset button is pushed.
+// Returns Step, which will be 1.
+
+  int counter = 0;
+  int Step = 0;
+  int Brightness = 1;
+  int onoff = 1;
+
   while (Step == 0) {
-    if (digitalRead(Button) == HIGH) {
+    if (digitalRead(Restart) == HIGH) {
       delay(25);
-      if (digitalRead(Button) == HIGH) {
+      if (digitalRead(Restart) == HIGH) {
         Step = 1;
-        Serial.println("Button HIGH");
-        delay(100);
+        digitalWrite(FailLED, LOW);
       }
     }
     else {
       if (Brightness == 1) {
-        digitalWrite(LED, HIGH);
+        digitalWrite(FailLED, HIGH);
         delay(100);
         ++ counter;
         if (counter == 5) {
@@ -132,7 +147,7 @@ void waitreset(){
       }
 
       else if (Brightness == 0) {
-        digitalWrite(LED, LOW);
+        digitalWrite(FailLED, LOW);
         delay(100);
         ++ counter;
         if (counter == 5) {
@@ -143,12 +158,8 @@ void waitreset(){
     }
   }
 
-  while (Step == 1) {
-    digitalWrite(LED, LOW);
-    Serial.println("LED OFF");
-    delay(4000);
-    Step = 0;
-  }
+  return Step
+  
 }
 
 
