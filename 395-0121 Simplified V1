@@ -49,12 +49,33 @@ int Finaladdr = 2;          // address for final pressure
 
 
 void setup() {
-  // put your setup code here, to run once:
+
+// LEDs
+  pinMode(PassLED, OUTPUT);
+  pinMode(FailLED, OUTPUT);
+  pinMode(PressureLED, OUTPUT);
+  pinMode(ReadyLED, OUTPUT);
+
+// Relays
+  pinMode(Valve1, OUTPUT);
+  pinMode(Valve2, OUTPUT);
+
+// Buttons
+  pinMode(StartCalibration, INPUT);
+  pinMode(StartTest, INPUT);
+  pinMode(Restart, INPUT);
+
+// Sensor read
+  pinMode(SensorRead, INPUT);
+  
+  Serial.begin(9600);
 
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+
+
+
 
 }
 
@@ -164,12 +185,12 @@ int waitreset() {
 
 ///////// 8. Function for regular test
 void test() {
-  pressurize(); // 1. Pressurize unit
-  Initial = analogRead(0);
-  EEPROM.write(Initialaddr, Initial / 4);
-  delay(Droptime);
-  Final = analogRead(0);
-  EEPROM.write(Finaladdr, Final / 4);
+  pressurize();                               // 1. Pressurize unit
+  Initial = analogRead(0);                    // 2. Read initial pressure
+  EEPROM.write(Initialaddr, Initial / 4);     // 3. Write initial to EEPROM
+  delay(Droptime);                            // 4. Wait this long before taking the final reading
+  Final = analogRead(0);                      // 5. Read the final value
+  EEPROM.write(Finaladdr, Final / 4);         // 6. Write final to EEPROM
 }
 
 
