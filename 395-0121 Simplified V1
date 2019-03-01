@@ -43,7 +43,7 @@ int Droptime = 3000;        // interval between calibration initial and final re
 // EEPROM Addresses
 
 int Dropaddr = 0;           // address for storing the calibration drop
-int Initialaddr = 1;        // address for initial pressure 
+int Initialaddr = 1;        // address for initial pressure
 int Finaladdr = 2;          // address for final pressure
 
 
@@ -102,10 +102,10 @@ void pressurize() {
 ///////// 4. Function for outputting a verdict
 
 void verdict() {
-  Maxdrop = EEPROM.read(Dropaddr)
-            Lastinitial = EEPROM.read(Initialaddr);
+  Maxdrop = EEPROM.read(Dropaddr);
+  Lastinitial = EEPROM.read(Initialaddr);
   Lastfinal = EEPROM.read(Finaladdr);
-  Lastdrop = Lastfinal - Lastinitial;
+  Lastdrop = Lastfinal * 4 - Lastinitial * 4;     // remember, EEPROM only gets to 255 so every analog read is reduced to 0.25 * original
   // now compare the test drop with calibration drop
   if (Lastdrop > Maxdrop) {
     Verdict = 0;                // fail test
@@ -119,8 +119,8 @@ void verdict() {
 
 int waitreset() {
 
-// This function will blink the fail LED at 1Hz until the reset button is pushed.
-// Returns Step, which will be 1.
+  // This function will blink the fail LED at 1Hz until the reset button is pushed.
+  // Returns Step, which will be 1.
 
   int counter = 0;
   int Step = 0;
@@ -159,7 +159,17 @@ int waitreset() {
   }
 
   return Step
-  
+
+}
+
+///////// 8. Function for regular test
+void test() {
+  pressurize(); // 1. Pressurize unit
+  Initial = analogRead(0);
+  EEPROM.write(Initialaddr, Initial / 4);
+  delay(Droptime);
+  Final = analogRead(0);
+  EEPROM.write(Finaladdr, Final / 4);
 }
 
 
