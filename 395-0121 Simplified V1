@@ -77,10 +77,11 @@ void setup() {
 /////////////////////////////////////// Main Function
 
 void loop() {
-
+  
+  resetled();                              // reset all LEDs besides Ready
   Serial.println("Ready");
   Serial.print("Calibration pressure drop is:");
-  Serial.println(EEPROM.read(Dropaddr));
+  Serial.println(EEPROM.read(Dropaddr));    // the value used for comparison will be this multiplied by 4
 
   int Start = 0;                        // This will be renewed by the 'buttoninput' function
   while (Start == 0) {
@@ -95,20 +96,23 @@ void loop() {
     // Once the operation is complete, output a verdict
 
     int Result = verdict();
+    Serial.print("Verdict is: ");
+    Serial.println(Result);
+
+    if (Result == 1) {                     // If unit PASSED the test...
+
+      passreset();
+
+    }
+    else if (Result == 0) {               // If unit FAILED the test...
+
+      waitreset();                        // Blind the FailLED and wait for operator to reset the jig
+    }
   }
   else if (Start == 2) {                // Perform calibration
     calibration();
   }
 
-
-  if (Start == 1) {                        // This loop only applicable if 'test' is run. For calibration, the loop ends before here.
-    if (Result == 1) {                     // If unit PASSED the test...
-      digitalWrite(PassLED, HIGH);         // Light up the Pass LED
-    }
-    else if (Result == 0) {               // If unit FAILED the test...
-      waitreset();                        // Blind the FailLED and wait for operator to reset the jig
-    }
-  }
 }
 
 /////////////////////////////////////////   Misc Functions   //////////////////////////////////////////
@@ -137,6 +141,8 @@ void exhaust() {
 void calibration() {
   // Calibration sequence:
 
+  digitalWrite(PressureLED, HIGH);
+
   pressurize();                        // 1. Pressurize unit. (use the 'pressurize' function)
 
   int Initial = analogRead(0);         // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
@@ -153,6 +159,8 @@ void calibration() {
   EEPROM.write(Dropaddr, Maxdrop / 4);     // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
 
   delay(1000);
+
+  digitalWrite(PressureLED, LOW);
 
   exhaust();                           // 7. release pressure
 }
@@ -174,7 +182,7 @@ void pressurize() {
 
   digitalWrite(Valve1, HIGH);       // 5. Close valve 1
   Serial.println("Valve 1 Closed");
-  
+
   digitalWrite(PressureLED, LOW);
 }
 
@@ -257,6 +265,8 @@ int waitreset() {
 void test() {
   Serial.println("Test Sequence Initiated");
 
+  digitalWrite(PressureLED, HIGH);
+
   pressurize();                               // 1. Pressurize unit
 
   int Initial = analogRead(0);                // 2. Read initial pressure
@@ -272,6 +282,7 @@ void test() {
   Serial.println(Final / 4);
 
   delay(1000);
+  digitalWrite(PressureLED, LOW);
 
   exhaust();                                  // 7. Release pressure
 }
@@ -310,3 +321,35 @@ int buttoninput() {
   }
   return Start;
 }
+
+/////////// 10. Wait for reset after unit passed
+void passreset() {
+  int Exit = 0;
+
+  digitalWrite(PassLED, HIGH);
+
+  while (Exit == 0) {
+    if (digitalRead(Restart) == HIGH) {
+      delay(25);
+      if (digitalRead(Restart) == HIGH) {
+
+        Exit = 1;
+
+      }
+    }
+    else {
+      delay(10);
+    }
+  }
+}
+
+/////////// 11. Reset all LEDs
+
+void resetled() {
+  digitalWrite(PressureLED, LOW);
+  digitalWrite(PassLED, LOW);
+  digitalWrite(FailLED, LOW);
+}
+
+
+
