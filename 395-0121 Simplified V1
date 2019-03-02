@@ -109,7 +109,7 @@ void exhaust() {
   // To release air through exhaust, close valve one and open valve two;
   // Allow for 5 seconds for complete exhaustion
   Serial.println("Exhausting Sequence Initiated");
-
+  delay(100);
   digitalWrite(Valve1, HIGH);      // 1. Close valve 1
   Serial.println("Valve 1 Closed");
 
@@ -120,21 +120,32 @@ void exhaust() {
   delay(Exhausttime);              // 4. Wait specified time interval
 
   digitalWrite(Valve2, HIGH);      // 5. Close valve 2
-  Serial.println("Valve w Closed");
-
+  Serial.println("Valve 2 Closed");
+  delay(100);
 }
 
 /////// 2. Function for calibration
 void calibration() {
   // Calibration sequence:
 
-  pressurize();                       // 1. Pressurize unit. (use the 'pressurize' function)
-  int Initial = analogRead(0);            // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
-  delay(Droptime);                    // 3. Wait specified time period
-  int Final = analogRead(0);              // 4. Take secondary reading
-  int Maxdrop = Initial - Final;          // 5. Calculate pressure drop
-  EEPROM.write(Dropaddr, Maxdrop);    // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
-  exhaust();                          // 7. release pressure
+  pressurize();                        // 1. Pressurize unit. (use the 'pressurize' function)
+
+  int Initial = analogRead(0);         // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
+  Serial.print("Initial reading: ");
+  Serial.println(Initial);
+  delay(Droptime);                     // 3. Wait specified time period
+
+  int Final = analogRead(0);           // 4. Take secondary reading
+  Serial.print("Final reading: ");
+  Serial.println(Final);
+
+  int Maxdrop = Initial - Final;       // 5. Calculate pressure drop
+
+  EEPROM.write(Dropaddr, Maxdrop / 4);     // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
+
+  delay(100);
+
+  exhaust();                           // 7. release pressure
 }
 
 /////// 3. Function for pressurizing unit
@@ -170,7 +181,7 @@ int verdict() {
   Serial.println(Lastdrop);
 
   // now compare the test drop with calibration drop
-  if (Lastdrop > Maxdrop) {
+  if (Lastdrop > (Maxdrop * 4)) {
     Verdict = 0;                // faileed test: Verdict = 0
     Serial.println("Unit FAILED");
   }
