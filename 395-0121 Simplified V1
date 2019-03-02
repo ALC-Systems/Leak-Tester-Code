@@ -46,36 +46,58 @@ int Dropaddr = 0;           // address for storing the calibration drop
 int Initialaddr = 1;        // address for initial pressure
 int Finaladdr = 2;          // address for final pressure
 
-
-
 void setup() {
 
-// LEDs
+  // LEDs
   pinMode(PassLED, OUTPUT);
   pinMode(FailLED, OUTPUT);
   pinMode(PressureLED, OUTPUT);
   pinMode(ReadyLED, OUTPUT);
 
-// Relays
+  // Relays
   pinMode(Valve1, OUTPUT);
   pinMode(Valve2, OUTPUT);
 
-// Buttons
+  // Buttons
   pinMode(StartCalibration, INPUT);
   pinMode(StartTest, INPUT);
   pinMode(Restart, INPUT);
 
-// Sensor read
+  // Sensor read
   pinMode(SensorRead, INPUT);
-  
+
   Serial.begin(9600);
 
 }
 
+/////////////////////////////////////// Main Function
+
 void loop() {
+  Serial.println("Ready");
+  int Start = 0;                        // This will be renewed by the 'buttoninput' function
+  while (Start == 0) {
+    Start = buttoninput();
+  }
 
+  // Once sequnce is started, either perform test or calibration
 
+  if (Start == 1) {                     // Perform test
+    test();
+  }
+  else if (Start == 2) {                // Perform calibration
+    calibration();
+  }
 
+  // Once the operation is complete, output a verdict
+
+  int Result = verdict();
+
+  if (Result == 1) {                    // If unit PASSED the test...
+    digitalWrite(PassLED, HIGH);         // Light up the Pass LED
+  }
+  else if (Result == 0) {               // If unit FAILED the test...
+    waitreset();                        // Blind the FailLED and wait for operator to reset the jig
+  }
 
 }
 
@@ -86,54 +108,77 @@ void loop() {
 void exhaust() {
   // To release air through exhaust, close valve one and open valve two;
   // Allow for 5 seconds for complete exhaustion
+  Serial.println("Exhausting Sequence Initiated");
 
   digitalWrite(Valve1, HIGH);      // 1. Close valve 1
+  Serial.println("Valve 1 Closed");
+
   delay(500);                      // 2. Allow valve 1 to close completely
   digitalWrite(Valve2, LOW);       // 3. Open valve 2
+  Serial.println("Valve 2 Open");
+
   delay(Exhausttime);              // 4. Wait specified time interval
+
   digitalWrite(Valve2, HIGH);      // 5. Close valve 2
+  Serial.println("Valve w Closed");
+
 }
 
-/////// 2. Function for releaseing air
+/////// 2. Function for calibration
 void calibration() {
   // Calibration sequence:
 
   pressurize();                       // 1. Pressurize unit. (use the 'pressurize' function)
-  Initial = analogRead(0);            // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
+  int Initial = analogRead(0);            // 2. Once unit is pressurized, take initial reading (make sure valve 1 is closed)
   delay(Droptime);                    // 3. Wait specified time period
-  Final = analogRead(0);              // 4. Take secondary reading
-  Maxdrop = Initial - Final;          // 5. Calculate pressure drop
+  int Final = analogRead(0);              // 4. Take secondary reading
+  int Maxdrop = Initial - Final;          // 5. Calculate pressure drop
   EEPROM.write(Dropaddr, Maxdrop);    // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
-
+  exhaust();                          // 7. release pressure
 }
 
 /////// 3. Function for pressurizing unit
 void pressurize() {
   // pressurizing sequence
+  Serial.println("Pressurizing Sequence Initiated");
 
   digitalWrite(Valve2, HIGH);       // 1. Close valve 2
+  Serial.println("Valve 2 Closed");
   delay(500);                       // 2. Wait for valve 2 to close completely
+
   digitalWrite(Valve1, LOW);        // 3. Open valve 1
+  Serial.println("Valve 1 Open");
+
   delay(Pressuretime);              // 4. Wait specified time interval
+
   digitalWrite(Valve1, HIGH);       // 5. Close valve 1
+  Serial.println("Valve 1 Closed");
 
 }
 
 
 ///////// 4. Function for outputting a verdict
 
-void verdict() {
-  Maxdrop = EEPROM.read(Dropaddr);
-  Lastinitial = EEPROM.read(Initialaddr);
-  Lastfinal = EEPROM.read(Finaladdr);
-  Lastdrop = Lastfinal * 4 - Lastinitial * 4;     // remember, EEPROM only gets to 255 so every analog read is reduced to 0.25 * original
+int verdict() {
+  int Verdict;
+  int Maxdrop = EEPROM.read(Dropaddr);
+  int Lastinitial = EEPROM.read(Initialaddr);
+  int Lastfinal = EEPROM.read(Finaladdr);
+  int Lastdrop = Lastfinal * 4 - Lastinitial * 4;     // remember, EEPROM only gets to 255 so every analog read is reduced to 0.25 * original
+
+  Serial.print("Last measured pressure drop is: ");
+  Serial.println(Lastdrop);
+
   // now compare the test drop with calibration drop
   if (Lastdrop > Maxdrop) {
-    Verdict = 0;                // fail test
+    Verdict = 0;                // faileed test: Verdict = 0
+    Serial.println("Unit FAILED");
   }
   else {
-    Verdict = 1;                // pass test
+    Verdict = 1;                // passed test: Verdict = 1
+    Serial.println("Unit PASSED");
   }
+  return Verdict;
 }
 
 ////////// 7. Function for waiting for reset
@@ -144,15 +189,15 @@ int waitreset() {
   // Returns Step, which will be 1.
 
   int counter = 0;
-  int Step = 0;
+  int Exit = 0;
   int Brightness = 1;
   int onoff = 1;
 
-  while (Step == 0) {
+  while (Exit == 0) {
     if (digitalRead(Restart) == HIGH) {
       delay(25);
       if (digitalRead(Restart) == HIGH) {
-        Step = 1;
+        Exit = 1;
         digitalWrite(FailLED, LOW);
       }
     }
@@ -179,21 +224,65 @@ int waitreset() {
     }
   }
 
-  return Step
+  return Exit;
 
 }
 
 ///////// 8. Function for regular test
 void test() {
+  Serial.println("Test Sequence Initiated");
+
   pressurize();                               // 1. Pressurize unit
-  Initial = analogRead(0);                    // 2. Read initial pressure
+
+  int Initial = analogRead(0);                // 2. Read initial pressure
   EEPROM.write(Initialaddr, Initial / 4);     // 3. Write initial to EEPROM
+  Serial.print("Initial reading: ");
+  Serial.println(Initial / 4);
+
   delay(Droptime);                            // 4. Wait this long before taking the final reading
-  Final = analogRead(0);                      // 5. Read the final value
+
+  int Final = analogRead(0);                  // 5. Read the final value
   EEPROM.write(Finaladdr, Final / 4);         // 6. Write final to EEPROM
+  Serial.print("Final reading: ");
+  Serial.println(Final / 4);
+  delay(100);
+
+  exhaust();                                  // 7. Release pressure
 }
 
 
+///////// 9. Start button detect
+int buttoninput() {
+  int Start = 0;
 
+  if ((digitalRead(StartTest) == HIGH)) {                       //  Test Start
+    delay(25);
+    if ((digitalRead(StartTest) == HIGH)) {
+      Start = 1;                                                  // Start = 1 for regular testing
+      Serial.println("Test Selected");
+      digitalWrite(ReadyLED, LOW);
+      delay(100);
+    }
+  }
+  // Calibration Button
+  else if ((digitalRead(StartCalibration) == HIGH)) {             // Calibration Start
+    delay(25);
+    if ((digitalRead(StartCalibration) == HIGH)) {
+      Start = 2;                                                  // Start = 2 for calibration
+      Serial.println("Calibration Selected");
+      digitalWrite(ReadyLED, LOW);
+      delay(100);
+
+    }
+  }
+  // Cricket Button
+  else {
+    digitalWrite (ReadyLED, HIGH);
+    Start = 0;
+    delay(100);
+
+  }
+  return Start;
+}
 
 
