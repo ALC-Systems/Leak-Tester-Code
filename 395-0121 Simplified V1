@@ -46,6 +46,10 @@ int Dropaddr = 0;           // address for storing the calibration drop
 int Initialaddr = 1;        // address for initial pressure
 int Finaladdr = 2;          // address for final pressure
 
+// Other variables
+int Result;
+
+
 void setup() {
 
   // LEDs
@@ -73,7 +77,11 @@ void setup() {
 /////////////////////////////////////// Main Function
 
 void loop() {
+
   Serial.println("Ready");
+  Serial.print("Calibration pressure drop is:");
+  Serial.println(EEPROM.read(Dropaddr));
+
   int Start = 0;                        // This will be renewed by the 'buttoninput' function
   while (Start == 0) {
     Start = buttoninput();
@@ -83,24 +91,25 @@ void loop() {
 
   if (Start == 1) {                     // Perform test
     test();
+
+    // Once the operation is complete, output a verdict
+
+    int Result = verdict();
   }
   else if (Start == 2) {                // Perform calibration
     calibration();
   }
 
-  // Once the operation is complete, output a verdict
 
-  int Result = verdict();
-
-  if (Result == 1) {                    // If unit PASSED the test...
-    digitalWrite(PassLED, HIGH);         // Light up the Pass LED
+  if (Start == 1) {                        // This loop only applicable if 'test' is run. For calibration, the loop ends before here.
+    if (Result == 1) {                     // If unit PASSED the test...
+      digitalWrite(PassLED, HIGH);         // Light up the Pass LED
+    }
+    else if (Result == 0) {               // If unit FAILED the test...
+      waitreset();                        // Blind the FailLED and wait for operator to reset the jig
+    }
   }
-  else if (Result == 0) {               // If unit FAILED the test...
-    waitreset();                        // Blind the FailLED and wait for operator to reset the jig
-  }
-
 }
-
 
 /////////////////////////////////////////   Misc Functions   //////////////////////////////////////////
 
@@ -143,7 +152,7 @@ void calibration() {
 
   EEPROM.write(Dropaddr, Maxdrop / 4);     // 6. Write to EEPROM address 0 (reserved for calibration value (pressure drop of the 'golden sample')
 
-  delay(100);
+  delay(1000);
 
   exhaust();                           // 7. release pressure
 }
@@ -151,6 +160,7 @@ void calibration() {
 /////// 3. Function for pressurizing unit
 void pressurize() {
   // pressurizing sequence
+  digitalWrite(PressureLED, HIGH);
   Serial.println("Pressurizing Sequence Initiated");
 
   digitalWrite(Valve2, HIGH);       // 1. Close valve 2
@@ -164,7 +174,8 @@ void pressurize() {
 
   digitalWrite(Valve1, HIGH);       // 5. Close valve 1
   Serial.println("Valve 1 Closed");
-
+  
+  digitalWrite(PressureLED, LOW);
 }
 
 
@@ -175,7 +186,7 @@ int verdict() {
   int Maxdrop = EEPROM.read(Dropaddr);
   int Lastinitial = EEPROM.read(Initialaddr);
   int Lastfinal = EEPROM.read(Finaladdr);
-  int Lastdrop = Lastfinal * 4 - Lastinitial * 4;     // remember, EEPROM only gets to 255 so every analog read is reduced to 0.25 * original
+  int Lastdrop = Lastinitial * 4 - Lastfinal * 4;     // remember, EEPROM only gets to 255 so every analog read is reduced to 0.25 * original
 
   Serial.print("Last measured pressure drop is: ");
   Serial.println(Lastdrop);
@@ -199,6 +210,9 @@ int waitreset() {
   // This function will blink the fail LED at 1Hz until the reset button is pushed.
   // Returns Step, which will be 1.
 
+  // As of Mar 01 2019, the Fail LED is malfunctioning. Using the pass LED instead. When someone gets a chance,
+  // change my pos LED mounting method and replace that LED.
+
   int counter = 0;
   int Exit = 0;
   int Brightness = 1;
@@ -209,12 +223,12 @@ int waitreset() {
       delay(25);
       if (digitalRead(Restart) == HIGH) {
         Exit = 1;
-        digitalWrite(FailLED, LOW);
+        digitalWrite(PassLED, LOW);
       }
     }
     else {
       if (Brightness == 1) {
-        digitalWrite(FailLED, HIGH);
+        digitalWrite(PassLED, HIGH);
         delay(100);
         ++ counter;
         if (counter == 5) {
@@ -224,7 +238,7 @@ int waitreset() {
       }
 
       else if (Brightness == 0) {
-        digitalWrite(FailLED, LOW);
+        digitalWrite(PassLED, LOW);
         delay(100);
         ++ counter;
         if (counter == 5) {
@@ -256,7 +270,8 @@ void test() {
   EEPROM.write(Finaladdr, Final / 4);         // 6. Write final to EEPROM
   Serial.print("Final reading: ");
   Serial.println(Final / 4);
-  delay(100);
+
+  delay(1000);
 
   exhaust();                                  // 7. Release pressure
 }
@@ -295,5 +310,3 @@ int buttoninput() {
   }
   return Start;
 }
-
-
